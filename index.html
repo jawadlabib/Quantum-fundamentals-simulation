@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Quantum Universe Simulator</title>
+<style>
+  body { margin:0; overflow:hidden; background:#111; color:#fff; font-family:sans-serif; }
+  canvas { display:block; }
+  #info {
+    position:absolute; top:10px; left:10px; z-index:10;
+    background:rgba(0,0,0,0.5); padding:10px; border-radius:8px;
+  }
+  #info p { margin:5px 0; }
+</style>
+</head>
+<body>
+<div id="info">
+  <button id="addParticle">Add Particle</button>
+  <button id="reset">Reset</button>
+  <p>Click a particle to <strong>measure/collapse</strong>.</p>
+  <p>Lines indicate <strong>entanglement</strong>.</p>
+  <p>Floating & semi-transparent particles represent <strong>superposition</strong>.</p>
+  <p>Particle trails show <strong>interference</strong>.</p>
+</div>
+<canvas id="quantumCanvas"></canvas>
+
+<script>
+const canvas = document.getElementById('quantumCanvas');
+const ctx = canvas.getContext('2d');
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
+
+class Particle {
+  constructor(x, y, color, prob=0.5) {
+    this.x = x;
+    this.y = y;
+    this.color = color;
+    this.prob = prob;
+    this.radius = 20;
+    this.dx = (Math.random()-0.5)*2;
+    this.dy = (Math.random()-0.5)*2;
+    this.collapsed = false;
+    this.entangled = [];
+    this.trail = [];
+  }
+  
+  draw() {
+    // Draw interference trail
+    ctx.beginPath();
+    for (let i=this.trail.length-1; i>0; i--) {
+      let t = this.trail[i];
+      ctx.strokeStyle = `rgba(${this.color.r},${this.color.g},${this.color.b},${i/this.trail.length*0.2})`;
+      ctx.moveTo(t.x, t.y);
+      ctx.lineTo(t.x, t.y);
+      ctx.stroke();
+    }
+
+    // Draw particle
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.radius, 0, Math.PI*2);
+    ctx.fillStyle = `rgba(${this.color.r},${this.color.g},${this.color.b},${this.prob})`;
+    ctx.fill();
+
+    // Label superposition if not collapsed
+    if (!this.collapsed) {
+      ctx.fillStyle = '#fff';
+      ctx.font = '12px Arial';
+      ctx.fillText('Superposition', this.x - 30, this.y - this.radius - 10);
+    }
+  }
+  
+  move() {
+    if (!this.collapsed) {
+      this.x += this.dx;
+      this.y += this.dy;
+      if (this.x < 0 || this.x > canvas.width) this.dx *= -1;
+      if (this.y < 0 || this.y > canvas.height) this.dy *= -1;
+      this.trail.push({x: this.x, y: this.y});
+      if (this.trail.length > 30) this.trail.shift();
+    }
+  }
+  
+  collapse() {
+    if (this.collapsed) return;
+    this.collapsed = true;
+
+    // Collapse animation
+    let targetRadius = 50;
+    let interval = setInterval(() => {
+      if (this.radius < targetRadius) this.radius += 2;
+      drawScene();
+      if (this.radius >= targetRadius) clearInterval(interval);
+    }, 30);
+
+    // Collapse entangled partners
+    this.entangled.forEach(p => p.collapse());
+  }
+}
+
+// Initialize particles
+let particles = [
+  new Particle(300, 300, {r:255,g:0,b:0}, 0.6),
+  new Particle(500, 300, {r:0,g:255,b:0}, 0.5)
+];
+
+// Make them entangled for demo
+particles[0].entangled.push(particles[1]);
+particles[1].entangled.push(particles[0]);
+
+function drawEntanglement() {
+  ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+  ctx.lineWidth = 2;
+  particles.forEach(p => {
+    p.entangled.forEach(e => {
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.y);
+      ctx.lineTo(e.x, e.y);
+      ctx.stroke();
+      // Label entanglement
+      ctx.fillStyle = '#fff';
+      ctx.font = '12px Arial';
+      ctx.fillText('Entanglement', (p.x+e.x)/2, (p.y+e.y)/2 - 5);
+    });
+  });
+}
+
+function drawScene() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  drawEntanglement();
+  particles.forEach(p => p.draw());
+}
+
+// Animation loop
+function animate() {
+  particles.forEach(p => p.move());
+  drawScene();
+  requestAnimationFrame(animate);
+}
+animate();
+
+// Click to collapse particle
+canvas.addEventListener('click', (e) => {
+  particles.forEach(p => {
+    let dist = Math.hypot(p.x - e.clientX, p.y - e.clientY);
+    if (dist <= p.radius) p.collapse();
+  });
+});
+
+// Add particle button
+document.getElementById('addParticle').addEventListener('click', () => {
+  let newParticle = new Particle(Math.random()*canvas.width, Math.random()*canvas.height, {r:Math.random()*255,g:Math.random()*255,b:Math.random()*255}, Math.random());
+  particles.push(newParticle);
+});
+
+// Reset button
+document.getElementById('reset').addEventListener('click', () => {
+  particles = [];
+  particles.push(
+    new Particle(300, 300, {r:255,g:0,b:0}, 0.6),
+    new Particle(500, 300, {r:0,g:255,b:0}, 0.5)
+  );
+  particles[0].entangled.push(particles[1]);
+  particles[1].entangled.push(particles[0]);
+});
+</script>
+</body>
+</html>

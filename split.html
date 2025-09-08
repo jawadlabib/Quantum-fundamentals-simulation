@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Split‑Path Superposition Lab</title>
+<style>
+  :root{
+    --bg:#0b0f14; --panel:#121823; --ink:#e9f0ff; --muted:#9fb3c8; --accent:#6dd6ff;
+    --good:#4ade80; --bad:#fb7185; --warn:#facc15;
+  }
+  html,body{height:100%;}
+  body{margin:0; font-family:system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; background:var(--bg); color:var(--ink);}
+  .app{display:grid; grid-template-columns: 320px 1fr; gap:12px; height:100%;}
+  .sidebar{background:var(--panel); padding:14px; overflow:auto; box-shadow: 0 0 0 1px rgba(255,255,255,.05) inset;}
+  h1{font-size:20px; margin:0 0 8px}
+  .sub{font-size:12px; color:var(--muted); margin-bottom:14px}
+  .row{margin:10px 0}
+  .label{font-size:12px; color:var(--muted); margin-bottom:6px}
+  .controls{display:flex; gap:8px; flex-wrap:wrap}
+  button{background:#1c2433; color:var(--ink); border:1px solid rgba(255,255,255,.08); padding:8px 10px; border-radius:10px; cursor:pointer}
+  button:hover{background:#22324a}
+  button[disabled]{opacity:.5; cursor:not-allowed}
+  .predict{display:flex; gap:10px; align-items:center; font-size:14px}
+  .hint{font-size:12px; color:var(--muted)}
+  .feedback{margin-top:8px; font-size:14px}
+  .good{color:var(--good)} .bad{color:var(--bad)} .warn{color:var(--warn)}
+  .canvasWrap{position:relative;}
+  canvas{display:block; width:100%; height:100%; background:radial-gradient(1200px 800px at 40% 50%, #0e1522 0%, #0b0f14 60%);} 
+  .legend{position:absolute; top:10px; right:10px; background:rgba(0,0,0,.35); border:1px solid rgba(255,255,255,.08); padding:10px; border-radius:12px; font-size:12px}
+  .legend b{color:var(--accent)}
+  .meter{height:8px; background:#0f1722; border-radius:999px; overflow:hidden; border:1px solid rgba(255,255,255,.08)}
+  .meter>div{height:100%; background:linear-gradient(90deg, #6dd6ff, #7c8cff); width:50%}
+  .inline{display:flex; justify-content:space-between; font-size:12px; color:var(--muted)}
+  a.help{color:var(--accent); text-decoration:none}
+</style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <h1>Split‑Path Superposition Lab</h1>
+      <div class="sub">Predict → Measure → Reflect. Explore how a quantum particle takes two paths until you measure it.
+      </div>
+
+      <div class="row">
+        <div class="label">Probability bias toward <b>Upper</b> path</div>
+        <input id="bias" type="range" min="0" max="100" value="50" />
+        <div class="inline"><span>Lower 0%</span><span id="biasVal">50%</span><span>Upper 100%</span></div>
+        <div class="meter" aria-hidden="true"><div id="meterFill" style="width:50%"></div></div>
+        <div class="hint">This controls the collapse odds: P(Upper) = slider value, P(Lower) = 1 − value.</div>
+      </div>
+
+      <div class="row">
+        <div class="label">Your prediction</div>
+        <div class="predict">
+          <label><input type="radio" name="pred" value="upper" /> Upper</label>
+          <label><input type="radio" name="pred" value="lower" /> Lower</label>
+          <button id="lockPred">Lock prediction</button>
+        </div>
+        <div class="hint">Lock before measuring to check yourself.</div>
+        <div id="predFeedback" class="feedback"></div>
+      </div>
+
+      <div class="row">
+        <div class="label">Controls</div>
+        <div class="controls">
+          <button id="start">Start</button>
+          <button id="measure" disabled>Measure (Collapse)</button>
+          <button id="reset">Reset</button>
+          <button id="toggleMode" title="Classical picks a path at start; Quantum collapses at measurement.">Mode: Quantum</button>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="label">What to notice</div>
+        <ul class="hint" style="margin:6px 0 0 16px; line-height:1.4">
+          <li>Before measurement, two <b>ghost trails</b> move along both paths (superposition).</li>
+          <li>On measurement, one trail becomes <b>solid</b> and the other <i>fades</i> (collapse).</li>
+          <li>Compare your prediction with the outcome to build intuition.</li>
+        </ul>
+      </div>
+
+      <div class="row hint">Tip: Try different biases (e.g., 80% Upper) and see how often each outcome occurs over many runs.</div>
+
+    </aside>
+
+    <main class="canvasWrap">
+      <canvas id="view"></canvas>
+      <div class="legend">
+        <div>Legend:</div>
+        <div>Ghost = superposition amplitude</div>
+        <div><b>Solid</b> = collapsed path</div>
+      </div>
+    </main>
+  </div>
+
+<script>
+(function(){
+  const canvas = document.getElementById('view');
+  const ctx = canvas.getContext('2d');
+  const bias = document.getElementById('bias');
+  const biasVal = document.getElementById('biasVal');
+  const meterFill = document.getElementById('meterFill');
+  const startBtn = document.getElementById('start');
+  const measureBtn = document.getElementById('measure');
+  const resetBtn = document.getElementById('reset');
+  const toggleBtn = document.getElementById('toggleMode');
+  const lockPredBtn = document.getElementById('lockPred');
+  const predFeedback = document.getElementById('predFeedback');
+
+  let W=0,H=0, raf=null;
+  let running=false, collapsed=false, classicalMode=false;
+  let t=0; // time
+  const SPEED=2.2; // px per frame
+
+  // Scene geometry
+  const geom = { src:{x:120,y:0}, splitX:360, joinX:760, upperY:0, lowerY:0 };
+
+  function resize(){
+    canvas.width = canvas.clientWidth;
+    canvas.height = canvas.clientHeight;
+    W=canvas.width; H=canvas.height;
+    // center split around mid-height
+    const mid = H*0.5;
+    geom.src.y = mid;
+    geom.upperY = mid-120;
+    geom.lowerY = mid+120;
+  }
+  window.addEventListener('resize', resize); resize();
+
+  // State for the two-path packet
+  const state = {
+    x: 120,
+    // amplitudes ~ sqrt(prob) for visualization; probabilities come from slider
+    ampUpper: Math.sqrt(0.5),
+    ampLower: Math.sqrt(0.5),
+    collapsedPath: null, // 'upper' | 'lower'
+    predLocked:false,
+    prediction:null
+  };
+
+  function setBias(v){
+    biasVal.textContent = v+"%";
+    meterFill.style.width = v+"%";
+    // amplitudes for visuals only
+    state.ampUpper = Math.sqrt(v/100);
+    state.ampLower = Math.sqrt(1 - v/100);
+  }
+  setBias(+bias.value);
+  bias.addEventListener('input', e=> setBias(+e.target.value));
+
+  lockPredBtn.addEventListener('click', ()=>{
+    const sel = document.querySelector('input[name="pred"]:checked');
+    if(!sel){ predFeedback.textContent = 'Select Upper or Lower first.'; predFeedback.className='feedback warn'; return; }
+    state.prediction=sel.value; state.predLocked=true; lockPredBtn.disabled=true;
+    predFeedback.textContent = 'Prediction locked: '+ (sel.value==='upper'?'Upper':'Lower');
+    predFeedback.className='feedback';
+  });
+
+  toggleBtn.addEventListener('click', ()=>{
+    classicalMode=!classicalMode;
+    toggleBtn.textContent = 'Mode: ' + (classicalMode? 'Classical':'Quantum');
+    reset();
+  });
+
+  startBtn.addEventListener('click', ()=>{
+    if(running) return;
+    running=true; collapsed=false; measureBtn.disabled=false; t=0; state.x=geom.src.x;
+    if(classicalMode){
+      // In classical mode, pick a path immediately (deterministic choice by bias threshold)
+      state.collapsedPath = (Math.random() < bias.value/100) ? 'upper' : 'lower';
+    } else {
+      state.collapsedPath = null; // superposition starts
+    }
+    loop();
+  });
+
+  measureBtn.addEventListener('click', ()=>{
+    if(!running || collapsed) return;
+    collapsed=true;
+    // Collapse by weighted random using slider probability
+    if(!state.collapsedPath){
+      const pUpper = bias.value/100;
+      state.collapsedPath = (Math.random() < pUpper)? 'upper':'lower';
+    }
+    // feedback against prediction
+    if(state.predLocked){
+      const ok = state.prediction === state.collapsedPath;
+      predFeedback.textContent = ok ? '✅ Correct! Outcome: '+cap(state.collapsedPath) : '❌ Not this time. Outcome: '+cap(state.collapsedPath);
+      predFeedback.className = 'feedback ' + (ok? 'good':'bad');
+    } else {
+      predFeedback.textContent = 'Measured: '+cap(state.collapsedPath)+'. (Tip: lock a prediction next time.)';
+      predFeedback.className = 'feedback warn';
+    }
+  });
+
+  resetBtn.addEventListener('click', reset);
+  function reset(){
+    running=false; collapsed=false; cancelAnimationFrame(raf);
+    t=0; state.x=geom.src.x; state.collapsedPath=null; measureBtn.disabled=true;
+    state.predLocked=false; state.prediction=null; lockPredBtn.disabled=false; predFeedback.textContent='';
+    draw();
+  }
+
+  function cap(s){ return s? s[0].toUpperCase()+s.slice(1):s; }
+
+  // ===== Drawing helpers =====
+  function drawPaths(){
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = 'rgba(255,255,255,.25)';
+    // source to split
+    ctx.beginPath();
+    ctx.moveTo(geom.src.x, geom.src.y);
+    ctx.lineTo(geom.splitX, geom.src.y);
+    ctx.stroke();
+    // split to upper/lower and then to right edge
+    ctx.beginPath();
+    ctx.moveTo(geom.splitX, geom.src.y);
+    ctx.lineTo(geom.splitX+40, geom.upperY);
+    ctx.lineTo(geom.joinX, geom.upperY);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(geom.splitX, geom.src.y);
+    ctx.lineTo(geom.splitX+40, geom.lowerY);
+    ctx.lineTo(geom.joinX, geom.lowerY);
+    ctx.stroke();
+
+    // labels
+    ctx.fillStyle = 'rgba(255,255,255,.7)';
+    ctx.font = '12px system-ui, sans-serif';
+    ctx.fillText('Source', geom.src.x-40, geom.src.y-10);
+    ctx.fillText('Split', geom.splitX-16, geom.src.y-10);
+    ctx.fillText('Upper path', geom.joinX-90, geom.upperY-10);
+    ctx.fillText('Lower path', geom.joinX-90, geom.lowerY-10);
+  }
+
+  function drawGhost(x,y,amp){
+    const r = 10 + 20*amp; // amplitude affects visual size
+    const g = ctx.createRadialGradient(x,y,0,x,y,r);
+    g.addColorStop(0, `rgba(109,214,255,0.55)`);
+    g.addColorStop(1, `rgba(109,214,255,0.0)`);
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(x,y,r,0,Math.PI*2);
+    ctx.fill();
+
+    // ghost trail dots
+    ctx.globalAlpha = 0.4;
+    for(let i=1;i<=6;i++){
+      const f = i*8; // spacing
+      ctx.beginPath();
+      ctx.arc(x - f, y, Math.max(1,3-i*0.4), 0, Math.PI*2);
+      ctx.fillStyle = 'rgba(125,160,255,.25)';
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function drawSolid(x,y){
+    ctx.shadowColor = '#7cc0ff';
+    ctx.shadowBlur = 16;
+    ctx.fillStyle = '#bfe2ff';
+    ctx.beginPath();
+    ctx.arc(x,y,8,0,Math.PI*2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+  }
+
+  function draw(){
+    ctx.clearRect(0,0,W,H);
+    drawPaths();
+
+    // progress along path
+    const x = state.x;
+    const uY = pathY('upper', x);
+    const lY = pathY('lower', x);
+
+    if(!collapsed){
+      if(classicalMode && state.collapsedPath){
+        // classical: only one solid packet moves, chosen at start
+        if(state.collapsedPath==='upper') drawSolid(x,uY); else drawSolid(x,lY);
+      } else {
+        // quantum superposition: two ghosts, weighted by amplitudes
+        drawGhost(x, uY, state.ampUpper);
+        drawGhost(x, lY, state.ampLower);
+      }
+    } else {
+      // After measurement: one solid, the other fades
+      const fade = 0.25;
+      if(state.collapsedPath==='upper'){
+        drawSolid(x,uY);
+        ctx.globalAlpha = fade; drawGhost(x,lY,state.ampLower*0.8); ctx.globalAlpha=1;
+      } else {
+        drawSolid(x,lY);
+        ctx.globalAlpha = fade; drawGhost(x,uY,state.ampUpper*0.8); ctx.globalAlpha=1;
+      }
+    }
+
+    // HUD text
+    ctx.fillStyle = 'rgba(255,255,255,.7)';
+    ctx.font = '13px system-ui, sans-serif';
+    const mode = classicalMode? 'Classical (path chosen at start)':'Quantum (collapse on measurement)';
+    ctx.fillText(mode, 16, 22);
+  }
+
+  function pathY(which, x){
+    // piecewise: go straight to split, then move toward upper/lower Y, then horizontal
+    if(x <= geom.splitX){ return geom.src.y; }
+    const k = Math.min(1, (x-geom.splitX)/40);
+    if(which==='upper') return lerp(geom.src.y, geom.upperY, k);
+    return lerp(geom.src.y, geom.lowerY, k);
+  }
+
+  function lerp(a,b,t){ return a + (b-a)*t; }
+
+  function loop(){
+    // advance along x
+    state.x += SPEED;
+    if(state.x > geom.joinX){ state.x = geom.joinX; running=false; cancelAnimationFrame(raf); measureBtn.disabled=true; }
+    draw();
+    if(running) raf = requestAnimationFrame(loop);
+  }
+
+  // initial paint
+  draw();
+})();
+</script>
+</body>
+</html>
