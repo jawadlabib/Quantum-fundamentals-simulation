@@ -1,7 +1,7 @@
 Interactive web-based simulations to visualize and explore fundamental concepts in quantum mechanics. Perfect for students, educators, and enthusiasts who want to see quantum behavior in action.
 
 Projects
-1. Quantum Universe Simulator
+**1. Quantum Universe Simulator**
 
 Simulates key quantum phenomena in an interactive particle system:
 
@@ -15,7 +15,9 @@ Interference: Particle trails show wave-like interference patterns.
 
 Purpose: Make abstract quantum concepts visible and easy to understand.
 
-2. Split-Path Superposition Lab
+
+
+**2. Split-Path Superposition Lab**
 
 Simulates a quantum particle traveling two paths until measurement, inspired by the double-slit experiment:
 
@@ -29,7 +31,8 @@ Classical vs Quantum Mode: Compare deterministic behavior with true quantum prob
 
 Purpose: Teach quantum randomness, probability, and measurement visually and interactively.
 
-Features
+
+**Features**
 
 Fully interactive, browser-based simulations
 
